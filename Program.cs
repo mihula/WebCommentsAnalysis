@@ -5,6 +5,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using System.Collections.Generic;
 using System.IO;
+using System.Text;
 
 namespace WebCommentsAnalysis
 {
@@ -16,10 +17,28 @@ namespace WebCommentsAnalysis
             //string filename = @"c:\Provys\pvysdev\_net\src\Provys\Modules\KEC\CustomWFTaskDetail.cs";
             //string filename = @"c:\Provys\pvysdev\_net\src\Provys\Modules\GenericModules.cs";
             //string filename = @"c:\Provys\pvysdev\_net\src\Provys\Modules\GUI\CreateGenericFrameWizard.cs";
-            string filename = @"c:\Provys\pvysdev\_net\src\Provys\Modules\ARC\AudPredValuePivotList.cs";
+            //string filename = @"c:\Provys\pvysdev\_net\src\Provys\Modules\ARC\AudPredValuePivotList.cs";
 
-            var fi = ProcessFile(filename);
-            Console.WriteLine(fi);
+            var path = args.Length > 0 ? args[0] : @"C:\Provys\pvysdev\_net\src\Provys\Modules";
+            var moduleOnly = args.Length > 1 ? args[1] : "KEC";
+            //var moduleOnly = args.Length > 1 ? args[1] : string.Empty;
+
+            if (!string.IsNullOrEmpty(moduleOnly))
+                path = Path.Combine(path, moduleOnly);
+
+            // nacti soubory *.cs z path, pokud je vyplnen moduleOnly tak jen z toho zadaneho adresare
+            // pak alayzuj jeden soubor, vysledek analyzy spoj do vystupu analyzy s jeho cestou jako klicem
+
+            string[] files = Directory.GetFiles(path, "*.cs", SearchOption.AllDirectories);
+
+            foreach (string file in files)
+            {
+                string filePath = Path.GetFullPath(file);
+                string fileContent = File.ReadAllText(file);
+
+                var fi = ProcessFile(filePath);
+                Console.WriteLine(fi);
+            }
         }
 
         static FileInfo ProcessFile(string filename)
@@ -31,7 +50,9 @@ namespace WebCommentsAnalysis
 
             var fileInfo = new FileInfo
             {
-                FileName = filename,
+                FullPath = filename,
+                ModuleName = Path.GetDirectoryName(filename).Split(Path.DirectorySeparatorChar).Last(),
+                FileName = Path.GetFileName(filename),
                 Classes = new List<ClassInfo>()
             };
 
@@ -97,7 +118,7 @@ namespace WebCommentsAnalysis
         static int CalculateMethodLineCount(MethodDeclarationSyntax method)
         {
             var lines = method.Body?.ToString().Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-            if (lines == null) return 0;
+            if (lines == null) return 1;
 
             return lines.Count(line => !string.IsNullOrWhiteSpace(line) && !line.TrimStart().StartsWith("//"));
         }
@@ -105,13 +126,23 @@ namespace WebCommentsAnalysis
 
     class FileInfo
     {
+        public string FullPath { get; set; }
+        public string ModuleName { get; set; }
         public string FileName { get; set; }
         public List<ClassInfo> Classes { get; set; }
 
         public override string ToString()
         {
-            return $@"FileInfo: {FileName}
-  {string.Join(Environment.NewLine + "  ", Classes)}";
+            var result = new StringBuilder();
+            var fileString = $"{ModuleName}\t{FileName}";
+            foreach (var c in Classes)
+            {
+                foreach (var m in c.Methods)
+                {
+                    result.AppendLine($"{fileString}\t{c.ToString()}\t{m.ToString()}");
+                }
+            }
+            return result.ToString();
         }
     }
 
@@ -125,12 +156,7 @@ namespace WebCommentsAnalysis
 
         public override string ToString()
         {
-            return $@"ClassName: {ClassName}
-  FormClassName: {FormClassName}
-  ClassStatus: {ClassStatus}
-  ClassSubStatus: {ClassSubStatus}
-  Methods:
-    {string.Join(Environment.NewLine + "    ", Methods)}";
+            return $"{ClassName}\t{FormClassName}\t{ClassStatus}\t{ClassSubStatus}";
         }
     }
 
@@ -143,10 +169,7 @@ namespace WebCommentsAnalysis
 
         public override string ToString()
         {
-            return $@"MethodName: {MethodName}
-    MethodStatus: {MethodStatus}
-    MethodSubStatus: {MethodSubStatus}
-    MethodLineCount: {MethodLineCount}";
+            return $"{MethodName}\t{MethodStatus}\t{MethodSubStatus}\t{MethodLineCount}";
         }
     }
 }
