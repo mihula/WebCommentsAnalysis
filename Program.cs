@@ -1,11 +1,10 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
-using System.Collections.Generic;
-using System.IO;
-using System.Text;
 
 namespace WebCommentsAnalysis
 {
@@ -27,9 +26,9 @@ namespace WebCommentsAnalysis
             var path = args.Length > 0 ? args[0] : @"C:\Provys\pvysdev\_net\src\Provys\Modules";
 
             // Test Set the module name to "KEC" if provided, otherwise use an empty string
-            //var moduleOnly = args.Length > 1 ? args[1] : "KEC";
+            var moduleOnly = args.Length > 1 ? args[1] : "KEC";
             // Set the module name to if provided, otherwise use an empty string
-            var moduleOnly = args.Length > 1 ? args[1] : "";
+            //var moduleOnly = args.Length > 1 ? args[1] : "";
 
             // If a module name is provided, combine it with the path
             if (!string.IsNullOrEmpty(moduleOnly))
@@ -51,7 +50,9 @@ namespace WebCommentsAnalysis
                 var fi = ProcessFile(filePath);
 
                 // Print the result
-                Console.WriteLine(fi);
+                var fiAsString = fi.ToString();
+                if (!string.IsNullOrEmpty(fiAsString))
+                    Console.WriteLine(fi);
             }
         }
 
@@ -59,36 +60,39 @@ namespace WebCommentsAnalysis
         /// Processes a C# file and extracts information about its classes and methods.
         /// </summary>
         /// <param name="filename">The path to the C# file to process.</param>
-        /// <returns>A FileInfo object containing information about the file's classes and methods.</returns>
-        static FileInfo ProcessFile(string filename)
+        /// <returns>A AnalysisFileInfo object containing information about the file's classes and methods.</returns>
+        static AnalysisFileInfo ProcessFile(string filename)
         {
             // Read the contents of the file
             string code = File.ReadAllText(filename);
             // Parse the file into a syntax tree
             SyntaxTree tree = CSharpSyntaxTree.ParseText(code);
             var root = (CompilationUnitSyntax)tree.GetRoot();
-            // Create a new FileInfo object to store the extracted information
-            var fileInfo = new FileInfo
+            // Create a new AnalysisFileInfo object to store the extracted information
+            var fileInfo = new AnalysisFileInfo
             {
                 FullPath = filename,
                 ModuleName = Path.GetDirectoryName(filename).Split(Path.DirectorySeparatorChar).Last(),
                 FileName = Path.GetFileName(filename),
-                Classes = new List<ClassInfo>()
+                Classes = new List<AnalysisClassInfo>()
             };
             // Iterate over all class declarations in the file
             foreach (var classNode in root.DescendantNodes().OfType<ClassDeclarationSyntax>())
             {
-                // Create a new ClassInfo object to store information about the class
-                var classInfo = new ClassInfo
+                // Create a new AnalysisClassInfo object to store information about the class
+                var classInfo = new AnalysisClassInfo
                 {
                     ClassName = $"class {classNode.Identifier.ValueText}",
-                    Methods = new List<MethodInfo>()
+                    Methods = new List<AnalysisMethodInfo>()
                 };
+
                 // Extract the Configuration attribute from the class
                 var attributes = classNode.AttributeLists.SelectMany(al => al.Attributes);
                 var formClassName = attributes.FirstOrDefault(a => a.Name.ToString() == "Configuration")?
                                     .ArgumentList.Arguments.First().Expression.ToString().Trim('"');
                 classInfo.FormClassName = formClassName;
+                classInfo.EntityName = EntityHelper.FormClassToEntity(formClassName);
+
                 // Extract the WEB comment from the class
                 var classStatusComment = classNode.GetLeadingTrivia()
                                             .Select(t => t.ToString().Trim())
@@ -104,8 +108,8 @@ namespace WebCommentsAnalysis
                 // Iterate over all method declarations in the class
                 foreach (var method in classNode.DescendantNodes().OfType<MethodDeclarationSyntax>())
                 {
-                    // Create a new MethodInfo object to store information about the method
-                    var methodInfo = new MethodInfo
+                    // Create a new AnalysisMethodInfo object to store information about the method
+                    var methodInfo = new AnalysisMethodInfo
                     {
                         MethodName = $"{method.ReturnType} {method.Identifier.ValueText}({string.Join(", ", method.ParameterList.Parameters)})",
                         MethodLineCount = CalculateMethodLineCount(method),
@@ -156,55 +160,6 @@ namespace WebCommentsAnalysis
 
             // Count the number of lines that are not empty and do not start with '//'
             return lines.Count(line => !string.IsNullOrWhiteSpace(line) && !line.TrimStart().StartsWith("//"));
-        }
-    }
-
-    class FileInfo
-    {
-        public string FullPath { get; set; }
-        public string ModuleName { get; set; }
-        public string FileName { get; set; }
-        public List<ClassInfo> Classes { get; set; }
-
-        public override string ToString()
-        {
-            var result = new StringBuilder();
-            var fileString = $"{ModuleName}\t{FileName}";
-            foreach (var c in Classes)
-            {
-                foreach (var m in c.Methods)
-                {
-                    result.AppendLine($"{fileString}\t{c.ToString()}\t{m.ToString()}");
-                }
-            }
-            return result.ToString();
-        }
-    }
-
-    class ClassInfo
-    {
-        public string ClassName { get; set; }
-        public string FormClassName { get; set; }
-        public string ClassStatus { get; set; }
-        public string ClassSubStatus { get; set; }
-        public List<MethodInfo> Methods { get; set; }
-
-        public override string ToString()
-        {
-            return $"{ClassName}\t{FormClassName}\t{ClassStatus}\t{ClassSubStatus}";
-        }
-    }
-
-    class MethodInfo
-    {
-        public string MethodName { get; set; }
-        public string MethodStatus { get; set; }
-        public string MethodSubStatus { get; set; }
-        public int MethodLineCount { get; set; }
-
-        public override string ToString()
-        {
-            return $"{MethodName}\t{MethodStatus}\t{MethodSubStatus}\t{MethodLineCount}";
         }
     }
 }
